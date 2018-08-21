@@ -227,8 +227,8 @@ void render(const vector<vector<vector<int> > >& world, const player_pos& pos, s
                     drawBlock(canvas, world, i.first, j.first, k.first, pos, (void*)bp);
                     cnt++;
                 }
-    for(vector<vector<bool> >& i : is_visible)
-        for(vector<bool>& j : i)
+    for(vector<vector<char> >& i : is_visible)
+        for(vector<char>& j : i)
             for(int k = 0; k < j.size(); k++)
                 j[k] = false;
     for (int i = 0; i < canvas.height; i++)
