@@ -23,6 +23,7 @@ struct screen
     int width;
     int height;
     void** predata;
+    void* extra = NULL;
     screen(int* data, int width, int height) : data(data), width(width), height(height)
     {
         predata = new void*[width * height];

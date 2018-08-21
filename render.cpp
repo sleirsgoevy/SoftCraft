@@ -1,10 +1,16 @@
+#include "config.h"
 #include <vector>
 #include <cmath>
 #include <utility>
 #include <iostream>
+#include <atomic>
 #include "segtree.h"
+#include <algorithm>
+#include <thread>
 
 using namespace std;
+
+struct worker_shared;
 
 struct screen
 {
@@ -12,6 +18,7 @@ struct screen
     int width;
     int height;
     void** predata;
+    worker_shared* ws;
 };
 
 struct player_pos;
@@ -130,8 +137,96 @@ struct block_pos
     int z;
 };
 
+struct worker_shared
+{
+    int num_workers = 1;
+    const vector<vector<block_pos> >* layers = NULL;
+    const vector<vector<vector<int> > >* world = NULL;
+    screen* canvas = NULL;
+    const player_pos* pos = NULL;
+    int work_type = 0;
+    atomic<int> work_done;
+    worker_shared()
+    {
+        work_done = -1;
+    }
+};
+
+/*struct worker
+{
+    int idx;
+    worker_shared* ws;
+    worker(int idx, worker_shared* ws) : idx(idx), ws(ws){};
+};*/
+
+void worker(worker_shared* ws, int idx, bool once)
+{
+    do
+    {
+        while(ws->work_done && ws->work_done >= ws->num_workers);
+        int work_type = ws->work_type;
+        screen& canvas = *ws->canvas;
+        const player_pos& pos = *ws->pos;
+        const vector<vector<vector<int> > >& world = *ws->world;
+        for(int i = 0; i < ws->layers->size(); i++)
+        {
+            while(ws->work_done < (ws->num_workers * i));
+            for(int j = idx; j < ws->layers[0][i].size(); j += max(ws->num_workers, 1))
+            {
+                const block_pos& bp = ws->layers[0][i][j];
+                if(world[bp.x][bp.y][bp.z] >= 0)
+                    if(work_type == 0)
+                        drawBlock(canvas, world, bp.x, bp.y, bp.z, pos, (void*)&bp);
+                    else
+                        drawBlock(canvas, world, bp.x, bp.y, bp.z, pos, world[bp.x][bp.y][bp.z]);
+            }
+            ++ws->work_done;
+        }
+    }
+    while(!once);
+}
+
+worker_shared* start_workers(screen& canvas)
+{
+    worker_shared* ws = new worker_shared;
+    ws->num_workers = WORKERS;
+    ws->canvas = &canvas;
+    ws->work_done = ws->num_workers;
+    for(int i = 0; i < WORKERS; i++)
+        new thread(worker, ws, i, false);
+    return ws;
+}
+
+vector<vector<block_pos> > split_layers(const vector<vector<vector<int> > >& world, const player_pos& pos, const vector<vector<vector<bool> > >& visible)
+{
+    int x0 = floor(pos.c.x);
+    int y0 = floor(pos.c.y);
+    int z0 = floor(pos.c.z);
+    vector<vector<block_pos> > ans;
+    for(int x = 0; x < world.size(); x++)
+        for(int y = 0; y < world[x].size(); y++)
+            for(int z = 0; z < world[x][y].size(); z++)
+            {
+                block_pos bp;
+                bp.x = x;
+                bp.y = y;
+                bp.z = z;
+                int level = abs(x - x0) + abs(y - y0) + abs(z - z0);
+                if(visible[x][y][z] && level)
+                {
+                    if(ans.size() < level)
+                        ans.resize(level);
+                    ans[level - 1].push_back(bp);
+                }
+            }
+    reverse(ans.begin(), ans.end());
+    return ans;
+}
+
 void render(const vector<vector<vector<int> > >& world, const player_pos& pos, screen& canvas)
 {
+    if(canvas.ws == NULL)
+        canvas.ws = start_workers(canvas);
 /*  if(canvas.tr == NULL)
     {
         canvas.tr = new segtree[canvas.height];
@@ -146,8 +241,8 @@ void render(const vector<vector<vector<int> > >& world, const player_pos& pos, s
             canvas.predata[i * canvas.width + j] = NULL;
     vector<vector<vector<bool> > > is_visible = vdfs_main(world, floor(pos.c.x), floor(pos.c.y), floor(pos.c.z));
     int cnt = 0;
-    vector<void*> blockdata;
-    for(auto& i : iteration_order<vector<vector<int> > >(world, floor(pos.c.x)))
+    //vector<void*> blockdata;
+    /*for(auto& i : iteration_order<vector<vector<int> > >(world, floor(pos.c.x)))
         for(auto& j : iteration_order<vector<int> >(i.second, floor(pos.c.y)))
             for(auto& k : iteration_order<int>(j.second, floor(pos.c.z)))
                 if(k.second >= 0 && is_visible[i.first][j.first][k.first])
@@ -159,7 +254,20 @@ void render(const vector<vector<vector<int> > >& world, const player_pos& pos, s
                     blockdata.push_back((void*)bp);
                     drawBlock(canvas, world, i.first, j.first, k.first, pos, (void*)bp);
                     cnt++;
-                }
+                }*/
+    vector<vector<block_pos> > layers = split_layers(world, pos, is_visible);
+    if(layers.size() == 0)
+        return;
+    canvas.ws->layers = &layers;
+    canvas.ws->world = &world;
+    canvas.ws->pos = &pos;
+    canvas.ws->work_type = 0;
+    asm volatile("":::"memory");
+    canvas.ws->work_done = 0;
+#if WORKERS == 0
+    worker(canvas.ws, 0, true);
+#endif
+    while(canvas.ws->work_done < layers.size() * canvas.ws->num_workers);
     for(vector<vector<bool> >& i : is_visible)
         for(vector<bool>& j : i)
             for(int k = 0; k < j.size(); k++)
@@ -171,15 +279,26 @@ void render(const vector<vector<vector<int> > >& world, const player_pos& pos, s
             if(cur != NULL)
                 is_visible[cur->x][cur->y][cur->z] = true;
         }
-    for(void* i : blockdata)
-        delete (block_pos*)i;
-    for(auto& i : iteration_order<vector<vector<int> > >(world, floor(pos.c.x)))
+    layers = split_layers(world, pos, is_visible);
+    if(layers.size() == 0)
+        return;
+    canvas.ws->layers = &layers;
+    canvas.ws->world = &world;
+    canvas.ws->pos = &pos;
+    canvas.ws->work_type = 1;
+    asm volatile("":::"memory");
+    canvas.ws->work_done = 0;
+#if WORKERS == 0
+    worker(canvas.ws, 0, true);
+#endif
+    while(canvas.ws->work_done < layers.size() * canvas.ws->num_workers);
+    /*for(auto& i : iteration_order<vector<vector<int> > >(world, floor(pos.c.x)))
         for(auto& j : iteration_order<vector<int> >(i.second, floor(pos.c.y)))
             for(auto& k : iteration_order<int>(j.second, floor(pos.c.z)))
                 if(k.second >= 0 && is_visible[i.first][j.first][k.first])
                 {
                     drawBlock(canvas, world, i.first, j.first, k.first, pos, k.second);
                     cnt++;
-                }
-    cout << cnt << " blocks rendered." << endl;
+                }*/
+    //cout << cnt << " blocks rendered." << endl;
 }
