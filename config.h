@@ -18,4 +18,4 @@
 #define MOUSE_SENSIVITY 0.002
 #define TICK_DURATION 1000
 
-#define WORKERS 4
+#define WORKERS 2

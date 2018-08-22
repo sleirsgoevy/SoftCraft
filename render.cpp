@@ -229,7 +229,7 @@ void worker(worker_shared* ws, int idx, bool once)
         const vector<vector<vector<int>>>& world = *ws->world;
         for (int i = 0; i < ws->layers->size(); i++) {
             while (ws->work_done < (ws->num_workers * i))
-                ;
+                std::this_thread::yield();
             for (int j = idx; j < ws->layers[0][i].size(); j += max(ws->num_workers, 1)) {
                 const block_pos& bp = ws->layers[0][i][j];
                 if (world[bp.x][bp.y][bp.z] >= 0)
@@ -326,7 +326,7 @@ void render(const vector<vector<vector<int>>>& world, const player_pos& pos, scr
     worker(canvas.ws, 0, true);
 #endif
     while (canvas.ws->work_done < layers.size() * canvas.ws->num_workers)
-        ;
+        std::this_thread::yield();
     for (vector<vector<char>>& i : is_visible)
         for (vector<char>& j : i)
             for (int k = 0; k < j.size(); k++)
