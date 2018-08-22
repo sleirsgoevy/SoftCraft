@@ -13,12 +13,25 @@ using namespace std;
 
 struct worker_shared;
 
+struct block_pos {
+    int x;
+    int y;
+    int z;
+    int extra;
+};
+
+const block_pos null_bpos = {-1, -1, -1, -1};
+
 struct screen {
     int* data;
     int width;
     int height;
-    void** predata;
+    block_pos* predata;
     worker_shared* ws;
+    inline void putpixel(int x, int y, int color)
+    {
+        this->data[width * y + x] = color;
+    }
 };
 
 struct player_pos;
@@ -95,7 +108,7 @@ void preDrawRect(screen& canvas,
                  const coords& p2,
                  const coords& p3,
                  const coords& p4,
-                 void* color);
+                 block_pos color);
 
 void drawTexture(screen& canvas,
                  const coords& p1,
@@ -110,7 +123,8 @@ void drawRectSomehow(screen& canvas,
                      const coords& p2,
                      const coords& p3,
                      const coords& p4,
-                     T color)
+                     T color,
+                     int side)
 {
 }
 
@@ -120,19 +134,22 @@ void drawRectSomehow<int>(screen& canvas,
                           const coords& p2,
                           const coords& p3,
                           const coords& p4,
-                          int color)
+                          int color,
+                          int side)
 {
     return drawTexture(canvas, p1, p2, p3, p4, color);
 }
 
 template <>
-void drawRectSomehow<void*>(screen& canvas,
+void drawRectSomehow<block_pos>(screen& canvas,
                             const coords& p1,
                             const coords& p2,
                             const coords& p3,
                             const coords& p4,
-                            void* color)
+                            block_pos color,
+                            int side)
 {
+    color.extra = side;
     return preDrawRect(canvas, p1, p2, p3, p4, color);
 }
 
@@ -151,51 +168,51 @@ void drawBlock(screen& canvas,
                         coords(x, y + 1, z) / pos,
                         coords(x, y + 1, z + 1) / pos,
                         coords(x, y, z + 1) / pos,
-                        color);
+                        color,
+                        0);
     if (pos.c.x > x + 1 && x < w.size() - 1 && w[x + 1][y][z] < 0)
         drawRectSomehow(canvas,
                         coords(x + 1, y, z) / pos,
                         coords(x + 1, y + 1, z) / pos,
                         coords(x + 1, y + 1, z + 1) / pos,
                         coords(x + 1, y, z + 1) / pos,
-                        color);
+                        color,
+                        1);
     if (pos.c.y < y && y > 0 && w[x][y - 1][z] < 0)
         drawRectSomehow(canvas,
                         coords(x, y, z) / pos,
                         coords(x + 1, y, z) / pos,
                         coords(x + 1, y, z + 1) / pos,
                         coords(x, y, z + 1) / pos,
-                        color);
+                        color,
+                        2);
     if (pos.c.y > y + 1 && y < w[x].size() - 1 && w[x][y + 1][z] < 0)
         drawRectSomehow(canvas,
                         coords(x, y + 1, z) / pos,
                         coords(x + 1, y + 1, z) / pos,
                         coords(x + 1, y + 1, z + 1) / pos,
                         coords(x, y + 1, z + 1) / pos,
-                        color);
+                        color,
+                        3);
     if (pos.c.z < z && z > 0 && w[x][y][z - 1] < 0)
         drawRectSomehow(canvas,
                         coords(x, y, z) / pos,
                         coords(x + 1, y, z) / pos,
                         coords(x + 1, y + 1, z) / pos,
                         coords(x, y + 1, z) / pos,
-                        color);
+                        color,
+                        4);
     if (pos.c.z > z + 1 && z < w[x][y].size() - 1 && w[x][y][z + 1] < 0)
         drawRectSomehow(canvas,
                         coords(x, y, z + 1) / pos,
                         coords(x + 1, y, z + 1) / pos,
                         coords(x + 1, y + 1, z + 1) / pos,
                         coords(x, y + 1, z + 1) / pos,
-                        color);
+                        color,
+                        5);
 }
 
 vector<vector<vector<char>>> vdfs_main(const vector<vector<vector<int>>>&, int, int, int);
-
-struct block_pos {
-    int x;
-    int y;
-    int z;
-};
 
 struct worker_shared {
     int num_workers = 1;
@@ -234,7 +251,7 @@ void worker(worker_shared* ws, int idx, bool once)
                 const block_pos& bp = ws->layers[0][i][j];
                 if (world[bp.x][bp.y][bp.z] >= 0)
                     if (work_type == 0)
-                        drawBlock(canvas, world, bp.x, bp.y, bp.z, pos, (void*)&bp);
+                        drawBlock(canvas, world, bp.x, bp.y, bp.z, pos, bp);
                     else
                         drawBlock(canvas, world, bp.x, bp.y, bp.z, pos, world[bp.x][bp.y][bp.z]);
             }
@@ -284,6 +301,8 @@ void render(const vector<vector<vector<int>>>& world, const player_pos& pos, scr
 {
     if (canvas.ws == NULL)
         canvas.ws = start_workers(canvas);
+    if (canvas.predata == NULL)
+        canvas.predata = new block_pos[canvas.width * canvas.height];
     /*  if(canvas.tr == NULL)
         {
             canvas.tr = new segtree[canvas.height];
@@ -295,11 +314,11 @@ void render(const vector<vector<vector<int>>>& world, const player_pos& pos, scr
             canvas.data[i * canvas.width + j] = 0xffffff;
     for (int i = 0; i < canvas.height; i++)
         for (int j = 0; j < canvas.width; j++)
-            canvas.predata[i * canvas.width + j] = NULL;
+            canvas.predata[i * canvas.width + j] = null_bpos;
     vector<vector<vector<char>>> is_visible = vdfs_main(
             world, floor(pos.c.x), floor(pos.c.y), floor(pos.c.z));
     int cnt = 0;
-    // vector<void*> blockdata;
+    // vector<block_pos> blockdata;
     /*for(auto& i : iteration_order<vector<vector<int> > >(world, floor(pos.c.x)))
         for(auto& j : iteration_order<vector<int> >(i.second, floor(pos.c.y)))
             for(auto& k : iteration_order<int>(j.second, floor(pos.c.z)))
@@ -309,9 +328,9 @@ void render(const vector<vector<vector<int>>>& world, const player_pos& pos, scr
                     bp->x = i.first;
                     bp->y = j.first;
                     bp->z = k.first;
-                    blockdata.push_back((void*)bp);
+                    blockdata.push_back((block_pos)bp);
                     drawBlock(canvas, world, i.first, j.first, k.first, pos,
-       (void*)bp); cnt++;
+       (block_pos)bp); cnt++;
                 }*/
     vector<vector<block_pos>> layers = split_layers(world, pos, is_visible);
     if (layers.size() == 0)
@@ -333,9 +352,9 @@ void render(const vector<vector<vector<int>>>& world, const player_pos& pos, scr
                 j[k] = false;
     for (int i = 0; i < canvas.height; i++)
         for (int j = 0; j < canvas.width; j++) {
-            block_pos* cur = (block_pos*)canvas.predata[i * canvas.width + j];
-            if (cur != NULL)
-                is_visible[cur->x][cur->y][cur->z] = true;
+            block_pos& cur = canvas.predata[i * canvas.width + j];
+            if (cur.extra >= 0)
+                is_visible[cur.x][cur.y][cur.z] = true;
         }
     layers = split_layers(world, pos, is_visible);
     if (layers.size() == 0)
@@ -360,4 +379,15 @@ void render(const vector<vector<vector<int>>>& world, const player_pos& pos, scr
        k.second); cnt++;
                 }*/
     // cout << cnt << " blocks rendered." << endl;
+    for(int i = 0; i < CROSS_SIZE; i++)
+    {
+        canvas.putpixel(canvas.width / 2 + i, canvas.height / 2, CROSS_COLOR);
+        canvas.putpixel(canvas.width / 2 - i, canvas.height / 2, CROSS_COLOR);
+        canvas.putpixel(canvas.width / 2 + i, canvas.height / 2 - 1, CROSS_COLOR);
+        canvas.putpixel(canvas.width / 2 - i, canvas.height / 2 - 1, CROSS_COLOR);
+        canvas.putpixel(canvas.width / 2, canvas.height / 2 + i, CROSS_COLOR);
+        canvas.putpixel(canvas.width / 2 - 1, canvas.height / 2 + i, CROSS_COLOR);
+        canvas.putpixel(canvas.width / 2, canvas.height / 2 - i, CROSS_COLOR);
+        canvas.putpixel(canvas.width / 2 - 1, canvas.height / 2 - i, CROSS_COLOR);
+    }
 }

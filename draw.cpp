@@ -9,16 +9,23 @@ using namespace std;
 
 int zmax(int n);
 
+struct block_pos {
+    int x;
+    int y;
+    int z;
+    int extra;
+};
+
 struct screen {
     int* data;
     int width;
     int height;
-    void** predata;
+    block_pos* predata;
     inline operator int*()
     {
         return data;
     }
-    inline operator void**()
+    inline operator block_pos*()
     {
         return predata;
     }
@@ -246,7 +253,7 @@ void preDrawRect(screen& scr,
                  const coords& p2,
                  const coords& p3,
                  const coords& p4,
-                 void* color)
+                 block_pos color)
 {
     drawTriangle3d(scr, p1, p3, p2, color);
     drawTriangle3d(scr, p1, p3, p4, color);

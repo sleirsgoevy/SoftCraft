@@ -23,15 +23,26 @@ struct player_pos {
             pitch(pitch){};
 };
 
+struct block_pos {
+    int x;
+    int y;
+    int z;
+    int side;
+};
+
 struct screen {
     int* data;
     int width;
     int height;
-    void** predata;
+    block_pos* predata;
     void* extra = NULL;
     screen(int* data, int width, int height) : data(data), width(width), height(height)
     {
-        predata = new void*[width * height];
+        predata = NULL;
+    }
+    block_pos pre_middle()
+    {
+        return predata[width * (height / 2) + width / 2];
     }
 };
 
@@ -94,6 +105,7 @@ int main(int argc, char** argv)
     long long ticks = 0;
     double yspeed = 0;
     while (true) {
+        render(world, pos, scr);
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
@@ -135,10 +147,31 @@ int main(int argc, char** argv)
                 if (pos.yaw > M_PI)
                     pos.yaw -= 2 * M_PI;
                 pos.pitch = min(M_PI / 2, max(-M_PI / 2, pos.pitch));
+                break;
             }
+            case SDL_MOUSEBUTTONDOWN: {
+                block_pos pointed = scr.pre_middle();
+                if(pointed.side >= 0)
+                    if(event.button.button == SDL_BUTTON_LEFT)
+                        world[pointed.x][pointed.y][pointed.z] = -1;
+                    else if(event.button.button == SDL_BUTTON_RIGHT)
+                    {
+                        switch(pointed.side)
+                        {
+                            case 0: pointed.x--; break;
+                            case 1: pointed.x++; break;
+                            case 2: pointed.y--; break;
+                            case 3: pointed.y++; break;
+                            case 4: pointed.z--; break;
+                            case 5: pointed.z++; break;
+                        }
+                        if(pointed.x >= 0 && pointed.y >= 0 && pointed.z >= 0 && pointed.x < WORLD_SIZE && pointed.y < WORLD_SIZE && pointed.z < WORLD_SIZE)
+                            world[pointed.x][pointed.y][pointed.z] = STONE;
+                    }
+                break;
+                }
             }
         }
-        render(world, pos, scr);
         SDL_UpdateTexture(texture, NULL, buffer, 640 * 4);
         SDL_RenderClear(renderer);
         SDL_RenderCopy(renderer, texture, NULL, NULL);
@@ -153,6 +186,7 @@ int main(int argc, char** argv)
             player_pos pos2 = pos;
             pos2.z += (movement_ws * cos(pos.yaw) - movement_ad * sin(pos.yaw)) * SPEED;
             pos2.x += (movement_ws * sin(pos.yaw) + movement_ad * cos(pos.yaw)) * SPEED;
+            collide(pos2, world);
             pos2.y += yspeed;
             collide(pos2, world);
             if (pos2.y == pos.y)

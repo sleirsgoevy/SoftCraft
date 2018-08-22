@@ -3,6 +3,8 @@
 
 #define SCALE 0.35
 #define EPS 0.02
+#define CROSS_SIZE 10
+#define CROSS_COLOR 0
 
 #define WORLD_SIZE 128
 #define STONE 0x808080
