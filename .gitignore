@@ -1,2 +1,3 @@
 main
-life3d.o
+*.o
+*.log
