@@ -209,9 +209,8 @@ void drawTriangle3d(screen& scr,
         swap(arr[0], arr[1]);
     }
 
-    if (arr[0] < arr[1])
-        if (arr[2].z <= EPS)
-            return;
+    if (arr[2].z <= EPS)
+        return;
     if (arr[0].z > EPS)
         drawTriangle(scr, pos1.project(scr), pos2.project(scr), pos3.project(scr), color);
     else if (arr[1].z <= EPS) {
