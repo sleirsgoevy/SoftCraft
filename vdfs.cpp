@@ -28,8 +28,8 @@ static inline void vdfs(world& w, int x, int y, int z, int mask)
     if (x < 0 || y < 0 || z < 0 || x >= w.width || y >= w.height || z >= w.depth
         || w.used_cur[x][y][z])
         return;
-    w.used_cur[x][y][z] = true;
-    w.used[x][y][z] = true;
+    w.used_cur[x][y][z] = 63;
+    w.used[x][y][z] = 63;
     if (w.data[x][y][z] >= 0)
         return;
     if (mask & 1)

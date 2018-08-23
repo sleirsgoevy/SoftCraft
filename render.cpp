@@ -159,10 +159,11 @@ void drawBlock(screen& canvas,
                int x,
                int y,
                int z,
+               int side,
                const player_pos& pos,
                T color)
 {
-    if (pos.c.x < x && x > 0 && w[x - 1][y][z] < 0)
+    if (pos.c.x < x && x > 0 && w[x - 1][y][z] < 0 && (side & 1))
         drawRectSomehow(canvas,
                         coords(x, y, z) / pos,
                         coords(x, y + 1, z) / pos,
@@ -170,7 +171,7 @@ void drawBlock(screen& canvas,
                         coords(x, y, z + 1) / pos,
                         color,
                         0);
-    if (pos.c.x > x + 1 && x < w.size() - 1 && w[x + 1][y][z] < 0)
+    if (pos.c.x > x + 1 && x < w.size() - 1 && w[x + 1][y][z] < 0 && (side & 2))
         drawRectSomehow(canvas,
                         coords(x + 1, y, z) / pos,
                         coords(x + 1, y + 1, z) / pos,
@@ -178,7 +179,7 @@ void drawBlock(screen& canvas,
                         coords(x + 1, y, z + 1) / pos,
                         color,
                         1);
-    if (pos.c.y < y && y > 0 && w[x][y - 1][z] < 0)
+    if (pos.c.y < y && y > 0 && w[x][y - 1][z] < 0 && (side & 4))
         drawRectSomehow(canvas,
                         coords(x, y, z) / pos,
                         coords(x + 1, y, z) / pos,
@@ -186,7 +187,7 @@ void drawBlock(screen& canvas,
                         coords(x, y, z + 1) / pos,
                         color,
                         2);
-    if (pos.c.y > y + 1 && y < w[x].size() - 1 && w[x][y + 1][z] < 0)
+    if (pos.c.y > y + 1 && y < w[x].size() - 1 && w[x][y + 1][z] < 0 && (side & 8))
         drawRectSomehow(canvas,
                         coords(x, y + 1, z) / pos,
                         coords(x + 1, y + 1, z) / pos,
@@ -194,7 +195,7 @@ void drawBlock(screen& canvas,
                         coords(x, y + 1, z + 1) / pos,
                         color,
                         3);
-    if (pos.c.z < z && z > 0 && w[x][y][z - 1] < 0)
+    if (pos.c.z < z && z > 0 && w[x][y][z - 1] < 0 && (side & 16))
         drawRectSomehow(canvas,
                         coords(x, y, z) / pos,
                         coords(x + 1, y, z) / pos,
@@ -202,7 +203,7 @@ void drawBlock(screen& canvas,
                         coords(x, y + 1, z) / pos,
                         color,
                         4);
-    if (pos.c.z > z + 1 && z < w[x][y].size() - 1 && w[x][y][z + 1] < 0)
+    if (pos.c.z > z + 1 && z < w[x][y].size() - 1 && w[x][y][z + 1] < 0 && (side & 32))
         drawRectSomehow(canvas,
                         coords(x, y, z + 1) / pos,
                         coords(x + 1, y, z + 1) / pos,
@@ -251,9 +252,9 @@ void worker(worker_shared* ws, int idx, bool once)
                 const block_pos& bp = ws->layers[0][i][j];
                 if (world[bp.x][bp.y][bp.z] >= 0)
                     if (work_type == 0)
-                        drawBlock(canvas, world, bp.x, bp.y, bp.z, pos, bp);
+                        drawBlock(canvas, world, bp.x, bp.y, bp.z, bp.extra, pos, bp);
                     else
-                        drawBlock(canvas, world, bp.x, bp.y, bp.z, pos, world[bp.x][bp.y][bp.z]);
+                        drawBlock(canvas, world, bp.x, bp.y, bp.z, bp.extra, pos, world[bp.x][bp.y][bp.z]);
             }
             ++ws->work_done;
         }
@@ -286,6 +287,7 @@ vector<vector<block_pos>> split_layers(const vector<vector<vector<int>>>& world,
                 bp.x = x;
                 bp.y = y;
                 bp.z = z;
+                bp.extra = visible[x][y][z];
                 int level = abs(x - x0) + abs(y - y0) + abs(z - z0);
                 if (visible[x][y][z] && level) {
                     if (ans.size() < level)
@@ -354,7 +356,7 @@ void render(const vector<vector<vector<int>>>& world, const player_pos& pos, scr
         for (int j = 0; j < canvas.width; j++) {
             block_pos& cur = canvas.predata[i * canvas.width + j];
             if (cur.extra >= 0)
-                is_visible[cur.x][cur.y][cur.z] = true;
+                is_visible[cur.x][cur.y][cur.z] |= (1 << cur.extra);
         }
     layers = split_layers(world, pos, is_visible);
     if (layers.size() == 0)

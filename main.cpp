@@ -62,7 +62,11 @@ int generate<int>()
     return colors[rand() % 9];
 }*/
 
-vector<vector<vector<int>>> generate();
+//vector<vector<vector<int>>> generate();
+
+vector<vector<vector<int> > > read_world(const char* path, int& seed, vector<vector<vector<int> > >& world0);
+
+void save_world(const char* path, int seed, const vector<vector<vector<int> > >& world0, const vector<vector<vector<int> > >& world);
 
 void render(const vector<vector<vector<int>>>&, const player_pos&, screen&);
 
@@ -70,10 +74,19 @@ void collide(player_pos& pos, const vector<vector<vector<int>>>& world);
 
 void init_textures();
 
+const int inventory[] = {STONE, DIRT, WOOD, GRASS, LEAVES, LAVA};
+
 int main(int argc, char** argv)
 {
-    if (argc >= 2)
-        srand(atoi(argv[1]));
+    if(argc < 2 || argc > 3)
+    {
+        fprintf(stderr, "usage: %s <save> [seed]\n", argv[0]);
+        return 1;
+    }
+    int seed = 1;
+    if (argc == 3)
+        seed = atoi(argv[2]);
+    const char* save_path = argv[1];
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         printf("Unable to init SDL: %s\n", SDL_GetError());
         return 1;
@@ -96,7 +109,8 @@ int main(int argc, char** argv)
         return 1;
     }
     screen scr(buffer, 640, 480);
-    vector<vector<vector<int>>> world = generate /*<vector<vector<vector<int> > > >*/ ();
+    vector<vector<vector<int> > > world0;
+    vector<vector<vector<int>>> world = read_world(save_path, seed, world0);//generate /*<vector<vector<vector<int> > > >*/ ();
     player_pos pos(WORLD_SIZE / 2, WORLD_SIZE / 2, WORLD_SIZE / 2);
     int movement_ws = 0;
     int movement_ad = 0;
@@ -104,14 +118,16 @@ int main(int argc, char** argv)
     auto start_time = chrono::high_resolution_clock::now();
     long long ticks = 0;
     double yspeed = 0;
+    int curr_block = STONE;
     while (true) {
         render(world, pos, scr);
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
-            case SDL_QUIT: return 0;
+            case SDL_QUIT: goto save_world;
             case SDL_KEYDOWN: {
                 if (event.key.repeat == 0)
+                {
                     switch (event.key.keysym.sym) {
                     case SDLK_w: movement_ws++; break;
                     case SDLK_s: movement_ws--; break;
@@ -123,6 +139,9 @@ int main(int argc, char** argv)
                         //                      case SDLK_SPACE: movement_y++; break;
                         //                      case SDLK_LSHIFT: movement_y--; break;
                     }
+                    if(event.key.keysym.sym >= SDLK_1 && event.key.keysym.sym <= SDLK_6)
+                        curr_block = inventory[event.key.keysym.sym - SDLK_1];
+                }
                 break;
             }
             case SDL_KEYUP: {
@@ -166,7 +185,7 @@ int main(int argc, char** argv)
                             case 5: pointed.z++; break;
                         }
                         if(pointed.x >= 0 && pointed.y >= 0 && pointed.z >= 0 && pointed.x < WORLD_SIZE && pointed.y < WORLD_SIZE && pointed.z < WORLD_SIZE)
-                            world[pointed.x][pointed.y][pointed.z] = STONE;
+                            world[pointed.x][pointed.y][pointed.z] = curr_block;
                     }
                 break;
                 }
@@ -195,5 +214,7 @@ int main(int argc, char** argv)
         }
         ticks = ticks2;
     }
+save_world:
+    save_world(save_path, seed, world0, world);
     return 0;
 }
