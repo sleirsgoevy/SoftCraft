@@ -219,10 +219,10 @@ vector<vector<vector<char>>> vdfs_main(const vector<vector<vector<int>>>&, int, 
 
 struct worker_shared {
     int num_workers = 1;
-    atomic<const vector<vector<block_pos>>*> layers;
-    atomic<const vector<vector<vector<int>>>*> world;
+    const vector<vector<block_pos>>* layers;
+    const vector<vector<vector<int>>>* world;
     screen* canvas = NULL;
-    atomic<const player_pos*> pos;
+    const player_pos* pos;
     int work_type = 0;
     atomic<int> work_done;
     atomic<int> finished;
@@ -252,9 +252,9 @@ void worker(worker_shared* ws, int idx, bool once)
         ++ws->work_done;
         int work_type = ws->work_type;
         screen& canvas = *ws->canvas;
-        const player_pos& pos = *ws->pos.load();
-        const vector<vector<vector<int>>>& world = *ws->world.load();
-        const vector<vector<block_pos>>& layers = *ws->layers.load();
+        const player_pos& pos = *ws->pos;
+        const vector<vector<vector<int>>>& world = *ws->world;
+        const vector<vector<block_pos>>& layers = *ws->layers;
         for (int i = 0; i < layers.size(); i++) {
             while (ws->work_done < ws->num_workers * (i + 1))
                 yield();
