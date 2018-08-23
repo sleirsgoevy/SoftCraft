@@ -217,15 +217,18 @@ vector<vector<vector<char>>> vdfs_main(const vector<vector<vector<int>>>&, int, 
 
 struct worker_shared {
     int num_workers = 1;
-    const vector<vector<block_pos>>* layers = NULL;
-    const vector<vector<vector<int>>>* world = NULL;
+    atomic<const vector<vector<block_pos>>*> layers;
+    atomic<const vector<vector<vector<int>>>*> world;
     screen* canvas = NULL;
-    const player_pos* pos = NULL;
+    atomic<const player_pos*> pos;
     int work_type = 0;
     atomic<int> work_done;
     worker_shared()
     {
         work_done = -1;
+        layers = NULL;
+        world = NULL;
+        pos = NULL;
     }
 };
 
@@ -240,24 +243,27 @@ void worker(worker_shared* ws, int idx, bool once)
 {
     do {
         while (ws->work_done && ws->work_done >= ws->num_workers)
-            ;
+            this_thread::yield();
         int work_type = ws->work_type;
         screen& canvas = *ws->canvas;
-        const player_pos& pos = *ws->pos;
-        const vector<vector<vector<int>>>& world = *ws->world;
-        for (int i = 0; i < ws->layers->size(); i++) {
+        const player_pos& pos = *ws->pos.load();
+        const vector<vector<vector<int>>>& world = *ws->world.load();
+        const vector<vector<block_pos>>& layers = *ws->layers.load();
+        for (int i = 0; i < layers.size(); i++) {
             while (ws->work_done < (ws->num_workers * i))
-                std::this_thread::yield();
-            for (int j = idx; j < ws->layers[0][i].size(); j += max(ws->num_workers, 1)) {
-                const block_pos& bp = ws->layers[0][i][j];
+                this_thread::yield();
+            for (int j = idx; j < layers[i].size(); j += max(ws->num_workers, 1)) {
+                const block_pos& bp = layers[i][j];
                 if (world[bp.x][bp.y][bp.z] >= 0)
                     if (work_type == 0)
                         drawBlock(canvas, world, bp.x, bp.y, bp.z, bp.extra, pos, bp);
                     else
                         drawBlock(canvas, world, bp.x, bp.y, bp.z, bp.extra, pos, world[bp.x][bp.y][bp.z]);
             }
+            cout << "worker: work done" << endl;
             ++ws->work_done;
         }
+        ++ws->work_done;
     } while (!once);
 }
 
@@ -341,13 +347,17 @@ void render(const vector<vector<vector<int>>>& world, const player_pos& pos, scr
     canvas.ws->world = &world;
     canvas.ws->pos = &pos;
     canvas.ws->work_type = 0;
+    cout << "main: doing work" << endl;
     asm volatile("" ::: "memory");
     canvas.ws->work_done = 0;
 #if WORKERS == 0
     worker(canvas.ws, 0, true);
 #endif
-    while (canvas.ws->work_done < layers.size() * canvas.ws->num_workers)
-        std::this_thread::yield();
+    while (canvas.ws->work_done < (layers.size() + 1) * canvas.ws->num_workers)
+    {
+        this_thread::yield();
+    }
+    cout << "main: work done" << endl;
     for (vector<vector<char>>& i : is_visible)
         for (vector<char>& j : i)
             for (int k = 0; k < j.size(); k++)
