@@ -9,6 +9,8 @@
 #include "config.h"
 #include "segtree.h"
 
+#define yield() {asm volatile("":::"memory");this_thread::yield();}
+
 using namespace std;
 
 struct worker_shared;
@@ -27,7 +29,7 @@ struct screen {
     int width;
     int height;
     block_pos* predata;
-    worker_shared* ws;
+    volatile worker_shared* ws;
     inline void putpixel(int x, int y, int color)
     {
         this->data[width * y + x] = color;
@@ -223,6 +225,7 @@ struct worker_shared {
     atomic<const player_pos*> pos;
     int work_type = 0;
     atomic<int> work_done;
+    atomic<int> finished;
     worker_shared()
     {
         work_done = -1;
@@ -242,16 +245,19 @@ struct worker_shared {
 void worker(worker_shared* ws, int idx, bool once)
 {
     do {
+//      cout << "worker: waiting for work" << endl;
         while (ws->work_done && ws->work_done >= ws->num_workers)
-            this_thread::yield();
+            yield();
+//      cout << "worker: starting work" << endl;
+        ++ws->work_done;
         int work_type = ws->work_type;
         screen& canvas = *ws->canvas;
         const player_pos& pos = *ws->pos.load();
         const vector<vector<vector<int>>>& world = *ws->world.load();
         const vector<vector<block_pos>>& layers = *ws->layers.load();
         for (int i = 0; i < layers.size(); i++) {
-            while (ws->work_done < (ws->num_workers * i))
-                this_thread::yield();
+            while (ws->work_done < ws->num_workers * (i + 1))
+                yield();
             for (int j = idx; j < layers[i].size(); j += max(ws->num_workers, 1)) {
                 const block_pos& bp = layers[i][j];
                 if (world[bp.x][bp.y][bp.z] >= 0)
@@ -260,14 +266,15 @@ void worker(worker_shared* ws, int idx, bool once)
                     else
                         drawBlock(canvas, world, bp.x, bp.y, bp.z, bp.extra, pos, world[bp.x][bp.y][bp.z]);
             }
-            cout << "worker: work done" << endl;
+//          cout << "worker: work done" << endl;
             ++ws->work_done;
         }
-        ++ws->work_done;
+//      cout << "worker: all work done" << endl;
+        ++ws->finished;
     } while (!once);
 }
 
-worker_shared* start_workers(screen& canvas)
+volatile worker_shared* start_workers(screen& canvas)
 {
     worker_shared* ws = new worker_shared;
     ws->num_workers = WORKERS;
@@ -275,7 +282,7 @@ worker_shared* start_workers(screen& canvas)
     ws->work_done = ws->num_workers;
     for (int i = 0; i < WORKERS; i++)
         new thread(worker, ws, i, false);
-    return ws;
+    return (volatile worker_shared*)ws;
 }
 
 vector<vector<block_pos>> split_layers(const vector<vector<vector<int>>>& world,
@@ -340,24 +347,26 @@ void render(const vector<vector<vector<int>>>& world, const player_pos& pos, scr
                     drawBlock(canvas, world, i.first, j.first, k.first, pos,
        (block_pos)bp); cnt++;
                 }*/
-    vector<vector<block_pos>> layers = split_layers(world, pos, is_visible);
-    if (layers.size() == 0)
+    vector<vector<block_pos>>* layers = new vector<vector<block_pos>>;
+    *layers = split_layers(world, pos, is_visible);
+    if (layers->size() == 0)
         return;
-    canvas.ws->layers = &layers;
+    canvas.ws->layers = layers;
     canvas.ws->world = &world;
     canvas.ws->pos = &pos;
     canvas.ws->work_type = 0;
-    cout << "main: doing work" << endl;
+    canvas.ws->finished = 0;
+//  cout << "main: doing work" << endl;
     asm volatile("" ::: "memory");
     canvas.ws->work_done = 0;
 #if WORKERS == 0
     worker(canvas.ws, 0, true);
 #endif
-    while (canvas.ws->work_done < (layers.size() + 1) * canvas.ws->num_workers)
+    while (canvas.ws->finished < canvas.ws->num_workers)
     {
-        this_thread::yield();
+        yield();
     }
-    cout << "main: work done" << endl;
+//  cout << "main: work done" << endl;
     for (vector<vector<char>>& i : is_visible)
         for (vector<char>& j : i)
             for (int k = 0; k < j.size(); k++)
@@ -368,20 +377,22 @@ void render(const vector<vector<vector<int>>>& world, const player_pos& pos, scr
             if (cur.extra >= 0)
                 is_visible[cur.x][cur.y][cur.z] |= (1 << cur.extra);
         }
-    layers = split_layers(world, pos, is_visible);
-    if (layers.size() == 0)
+    *layers = split_layers(world, pos, is_visible);
+    if (layers->size() == 0)
         return;
-    canvas.ws->layers = &layers;
+    canvas.ws->layers = layers;
     canvas.ws->world = &world;
     canvas.ws->pos = &pos;
     canvas.ws->work_type = 1;
+    canvas.ws->finished = 0;
     asm volatile("" ::: "memory");
     canvas.ws->work_done = 0;
 #if WORKERS == 0
     worker(canvas.ws, 0, true);
 #endif
-    while (canvas.ws->work_done < layers.size() * canvas.ws->num_workers)
-        ;
+    while (canvas.ws->finished < canvas.ws->num_workers)
+        yield();
+    delete layers;
     /*for(auto& i : iteration_order<vector<vector<int> > >(world, floor(pos.c.x)))
         for(auto& j : iteration_order<vector<int> >(i.second, floor(pos.c.y)))
             for(auto& k : iteration_order<int>(j.second, floor(pos.c.z)))
