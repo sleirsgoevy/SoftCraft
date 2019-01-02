@@ -7,6 +7,11 @@
 #include <vector>
 
 #include "config.h"
+
+#ifdef USE_3RENDER
+#define WORKERS 0
+#endif
+
 #include "segtree.h"
 
 #define yield() {asm volatile("":::"memory");this_thread::yield();}
@@ -105,6 +110,12 @@ struct iteration_order {
     }
 };
 
+#ifdef USE_3RENDER
+#include "3render.cpp"
+#define screen BigPixel<T>
+#endif
+
+#define T block_pos
 void preDrawRect(screen& canvas,
                  const coords& p1,
                  const coords& p2,
@@ -112,12 +123,15 @@ void preDrawRect(screen& canvas,
                  const coords& p4,
                  block_pos color);
 
+#define T int
 void drawTexture(screen& canvas,
                  const coords& p1,
                  const coords& p2,
                  const coords& p3,
                  const coords& p4,
                  int color);
+
+#undef T
 
 template <class T>
 void drawRectSomehow(screen& canvas,
@@ -130,6 +144,7 @@ void drawRectSomehow(screen& canvas,
 {
 }
 
+#define T int
 template <>
 void drawRectSomehow<int>(screen& canvas,
                           const coords& p1,
@@ -142,6 +157,7 @@ void drawRectSomehow<int>(screen& canvas,
     return drawTexture(canvas, p1, p2, p3, p4, color);
 }
 
+#define T block_pos
 template <>
 void drawRectSomehow<block_pos>(screen& canvas,
                             const coords& p1,
@@ -154,6 +170,8 @@ void drawRectSomehow<block_pos>(screen& canvas,
     color.extra = side;
     return preDrawRect(canvas, p1, p2, p3, p4, color);
 }
+
+#undef T
 
 template <class T>
 void drawBlock(screen& canvas,
@@ -215,6 +233,10 @@ void drawBlock(screen& canvas,
                         5);
 }
 
+#ifdef screen
+#undef screen
+#endif
+
 vector<vector<vector<char>>> vdfs_main(const vector<vector<vector<int>>>&, int, int, int);
 
 struct worker_shared {
@@ -222,6 +244,12 @@ struct worker_shared {
     const vector<vector<block_pos>>* layers;
     const vector<vector<vector<int>>>* world;
     screen* canvas = NULL;
+#ifdef USE_3RENDER
+    Framebuffer<int>* fb_int;
+    BigPixel<int>* canvas_int;
+    Framebuffer<block_pos>* fb_bp;
+    BigPixel<block_pos>* canvas_bp;
+#endif
     const player_pos* pos;
     int work_type = 0;
     atomic<int> work_done;
@@ -244,6 +272,7 @@ struct worker_shared {
 
 void worker(worker_shared* ws, int idx, bool once)
 {
+//only one worker for 3render mode
     do {
 //      cout << "worker: waiting for work" << endl;
         while (ws->work_done && ws->work_done >= ws->num_workers)
@@ -262,9 +291,21 @@ void worker(worker_shared* ws, int idx, bool once)
                 const block_pos& bp = layers[i][j];
                 if (world[bp.x][bp.y][bp.z] >= 0)
                     if (work_type == 0)
-                        drawBlock(canvas, world, bp.x, bp.y, bp.z, bp.extra, pos, bp);
+                        drawBlock(
+#ifdef USE_3RENDER
+                            *ws->canvas_bp
+#else
+                            canvas
+#endif
+                            , world, bp.x, bp.y, bp.z, bp.extra, pos, bp);
                     else
-                        drawBlock(canvas, world, bp.x, bp.y, bp.z, bp.extra, pos, world[bp.x][bp.y][bp.z]);
+                        drawBlock(
+#ifdef USE_3RENDER
+                            *ws->canvas_int
+#else
+                            canvas
+#endif
+                            , world, bp.x, bp.y, bp.z, bp.extra, pos, world[bp.x][bp.y][bp.z]);
             }
 //          cout << "worker: work done" << endl;
             ++ws->work_done;
@@ -272,6 +313,10 @@ void worker(worker_shared* ws, int idx, bool once)
 //      cout << "worker: all work done" << endl;
         ++ws->finished;
     } while (!once);
+#ifdef USE_3RENDER
+    ws->canvas_int->push(0xffffff);
+    ws->canvas_bp->push(null_bpos);
+#endif
 }
 
 worker_shared* start_workers(screen& canvas)
@@ -280,6 +325,12 @@ worker_shared* start_workers(screen& canvas)
     ws->num_workers = WORKERS;
     ws->canvas = &canvas;
     ws->work_done = ws->num_workers;
+#ifdef USE_3RENDER
+    ws->fb_int = new Framebuffer<int>{.width = canvas.width, .height = canvas.height, .buf = canvas.data};
+    ws->canvas_int = new BigPixel<int>(*ws->fb_int, 0, 0, canvas.width, canvas.height);
+    ws->fb_bp = new Framebuffer<block_pos>{.width = canvas.width, .height = canvas.height, .buf = canvas.predata};
+    ws->canvas_bp = new BigPixel<block_pos>(*ws->fb_bp, 0, 0, canvas.width, canvas.height);
+#endif
     for (int i = 0; i < WORKERS; i++)
         new thread(worker, ws, i, false);
     return ws;
@@ -314,22 +365,24 @@ vector<vector<block_pos>> split_layers(const vector<vector<vector<int>>>& world,
 
 void render(const vector<vector<vector<int>>>& world, const player_pos& pos, screen& canvas)
 {
-    if (canvas.ws == NULL)
-        canvas.ws = start_workers(canvas);
     if (canvas.predata == NULL)
         canvas.predata = new block_pos[canvas.width * canvas.height];
+    if (canvas.ws == NULL)
+        canvas.ws = start_workers(canvas);
     /*  if(canvas.tr == NULL)
         {
             canvas.tr = new segtree[canvas.height];
             for(int i = 0; i < canvas.height; i++)
                 canvas.tr[i] = segtree(0, canvas.width);
         }*/
+#ifndef USE_3RENDER
     for (int i = 0; i < canvas.height; i++)
         for (int j = 0; j < canvas.width; j++)
             canvas.data[i * canvas.width + j] = 0xffffff;
     for (int i = 0; i < canvas.height; i++)
         for (int j = 0; j < canvas.width; j++)
             canvas.predata[i * canvas.width + j] = null_bpos;
+#endif
     vector<vector<vector<char>>> is_visible = vdfs_main(
             world, floor(pos.c.x), floor(pos.c.y), floor(pos.c.z));
     int cnt = 0;

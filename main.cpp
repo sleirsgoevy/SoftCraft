@@ -70,6 +70,7 @@ void save_world(const char* path, int seed, const vector<vector<vector<int> > >&
 
 void render(const vector<vector<vector<int>>>&, const player_pos&, screen&);
 
+void collide_block(player_pos& pos, int x, int y, int z);
 void collide(player_pos& pos, const vector<vector<vector<int>>>& world);
 
 void init_textures();
@@ -185,7 +186,12 @@ int main(int argc, char** argv)
                             case 5: pointed.z++; break;
                         }
                         if(pointed.x >= 0 && pointed.y >= 0 && pointed.z >= 0 && pointed.x < WORLD_SIZE && pointed.y < WORLD_SIZE && pointed.z < WORLD_SIZE)
-                            world[pointed.x][pointed.y][pointed.z] = curr_block;
+                        {
+                            player_pos pos2 = pos;
+                            collide_block(pos2, pointed.x, pointed.y, pointed.z);
+                            if(pos2.x == pos.x && pos2.y == pos.y && pos2.z == pos.z)
+                                world[pointed.x][pointed.y][pointed.z] = curr_block;\
+                        }
                     }
                 break;
                 }

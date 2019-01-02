@@ -41,10 +41,19 @@ struct coords {
     double x;
     double y;
     double z;
-    inline pair<int, int> project(const screen& scr) const
+    template<class screen_t>
+    inline pair<int, int> project(const screen_t& scr) const
     {
+#ifdef USE_3RENDER
+#define width fb->width
+#define height fb->height
+#endif
         return make_pair(scr.width * 0.5 + (scr.height * SCALE * x) / z,
                          scr.height * 0.5 - (scr.height * SCALE * y) / z);
+#ifdef USE_3RENDER
+#undef width
+#undef height
+#endif
     }
     inline bool operator<(const coords& other) const
     {
@@ -64,6 +73,8 @@ struct coords {
         return ans;
     }
 };
+
+#ifndef USE_3RENDER
 
 template <class T>
 void drawLine(screen& scr, pair<int, int> pos1, pair<int, int> pos2, T color)
@@ -164,6 +175,18 @@ void drawTriangle(screen& scr,
     }
 }
 
+#else //USE_3RENDER
+#include "3render.cpp"
+#define screen BigPixel<T>
+
+template<class T>
+void drawTriangle(screen& scr, const pair<int, int>& pos1, const pair<int, int>& pos2, const pair<int, int>& pos3, T color)
+{
+    scr.add_tri(Triangle<T>(pos1.first, pos1.second, pos2.first, pos2.second, pos3.first, pos3.second, color));
+}
+
+#endif
+
 template <class T>
 void drawRectangle(screen& scr,
                    pair<int, int> pos1,
@@ -248,6 +271,7 @@ void drawTriangle3d(screen& scr,
 
 extern unordered_map<int, int*> textures;
 
+#define T block_pos
 void preDrawRect(screen& scr,
                  const coords& p1,
                  const coords& p2,
@@ -259,6 +283,7 @@ void preDrawRect(screen& scr,
     drawTriangle3d(scr, p1, p3, p4, color);
 }
 
+#define T int
 void drawTexture(screen& scr,
                  const coords& p1,
                  const coords& p2,
