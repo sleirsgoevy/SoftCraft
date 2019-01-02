@@ -29,7 +29,7 @@ struct screen {
     int width;
     int height;
     block_pos* predata;
-    volatile worker_shared* ws;
+    worker_shared* ws;
     inline void putpixel(int x, int y, int color)
     {
         this->data[width * y + x] = color;
@@ -274,7 +274,7 @@ void worker(worker_shared* ws, int idx, bool once)
     } while (!once);
 }
 
-volatile worker_shared* start_workers(screen& canvas)
+worker_shared* start_workers(screen& canvas)
 {
     worker_shared* ws = new worker_shared;
     ws->num_workers = WORKERS;
@@ -282,7 +282,7 @@ volatile worker_shared* start_workers(screen& canvas)
     ws->work_done = ws->num_workers;
     for (int i = 0; i < WORKERS; i++)
         new thread(worker, ws, i, false);
-    return (volatile worker_shared*)ws;
+    return ws;
 }
 
 vector<vector<block_pos>> split_layers(const vector<vector<vector<int>>>& world,

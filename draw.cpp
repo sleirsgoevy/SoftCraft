@@ -193,9 +193,9 @@ void drawRectangle(screen& scr,
                 scr.putpixel(x, y, color);
         }*/
     drawTriangle(scr, pos2, pos3, pos4, color);
-    // drawTriangle(scr, pos1, pos4, pos4, color);
+    drawTriangle(scr, pos1, pos4, pos4, color);
     drawTriangle(scr, pos1, pos2, pos4, color);
-    // drawTriangle(scr, pos1, pos2, pos3, color);
+    drawTriangle(scr, pos1, pos2, pos3, color);
 }
 
 template <class T>
